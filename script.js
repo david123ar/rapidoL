@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, setDoc } = require('firebase/firestore');
+const { getFirestore, doc, setDoc, getDoc } = require('firebase/firestore');
 
 // Firebase configuration
 const firebaseConfig = {
@@ -31,6 +31,15 @@ async function fetchAnimeList() {
         const { id, title } = anime;
         console.log(`Fetching data for anime: ${title} (ID: ${id})`);
 
+        // Check if anime already exists in Firestore
+        const animeRef = doc(db, 'animeInfo', id.toString());
+        const animeDoc = await getDoc(animeRef);
+        if (animeDoc.exists()) {
+          console.log(`Anime ${title} (ID: ${id}) already exists, skipping.`);
+          continue; // Skip fetching data if anime exists
+        }
+
+        // Fetch anime info and episodes only if anime doesn't exist
         const animeInfo = await fetchAnimeInfo(id);
         const episodes = await fetchEpisodes(id);
 
@@ -64,6 +73,15 @@ async function fetchEpisodes(id) {
 
     for (let episode of episodes) {
       const { episodeId } = episode;
+
+      // Check if episode already exists in Firestore
+      const episodeRef = doc(db, 'episodesStream', episodeId.toString());
+      const episodeDoc = await getDoc(episodeRef);
+      if (episodeDoc.exists()) {
+        console.log(`Episode ${episodeId} already exists, skipping.`);
+        continue; // Skip fetching streams if episode exists
+      }
+
       console.log(`Processing episode ID: ${episodeId}`); // Log the episode ID
       const streams = await fetchStreamLinks(episodeId);
       episode.streams = streams;
