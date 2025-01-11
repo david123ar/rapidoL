@@ -1,24 +1,19 @@
 const axios = require('axios');
-const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, setDoc, getDoc } = require('firebase/firestore');
+const { MongoClient } = require('mongodb');
 
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyDCqUTH6qNdJe89cQ2vqD8tpOk6FL9b2Zk",
-  authDomain: "fir-to-firestore.firebaseapp.com",
-  databaseURL: "https://firebase-to-firestore-default-rtdb.firebaseio.com",
-  projectId: "firebase-to-firestore",
-  storageBucket: "firebase-to-firestore.appspot.com",
-  messagingSenderId: "547489165252",
-  appId: "1:547489165252:web:73260715c633067075be91"
-};
+// MongoDB configuration
+const mongoUri = 'mongodb://root:Imperial_king2004@145.223.118.168:27017/?authSource=admin';
+const dbName = 'mydatabase'; // Change the database name as needed
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// Initialize MongoDB Client
+const client = new MongoClient(mongoUri);
 
-// Fetch data from vimal.animoon.me
 async function fetchAnimeList() {
+  await client.connect();
+  const db = client.db(dbName);
+  const animeCollection = db.collection('animeInfo');
+  const episodesCollection = db.collection('episodesStream');
+
   let currentPage = 1;
   const totalPages = 208;
 
@@ -31,20 +26,19 @@ async function fetchAnimeList() {
         const { id, title } = anime;
         console.log(`Fetching data for anime: ${title} (ID: ${id})`);
 
-        // Check if anime already exists in Firestore
-        const animeRef = doc(db, 'animeInfo', id.toString());
-        const animeDoc = await getDoc(animeRef);
-        if (animeDoc.exists()) {
+        // Check if anime already exists in MongoDB
+        const existingAnime = await animeCollection.findOne({ _id: id });
+        if (existingAnime) {
           console.log(`Anime ${title} (ID: ${id}) already exists, skipping.`);
-          continue; // Skip fetching data if anime exists
+          continue;
         }
 
         // Fetch anime info and episodes only if anime doesn't exist
         const animeInfo = await fetchAnimeInfo(id);
-        const episodes = await fetchEpisodes(id);
+        const episodes = await fetchEpisodes(id, episodesCollection);
 
         if (animeInfo && episodes.length > 0) {
-          await storeAnimeData(id, animeInfo, episodes);
+          await storeAnimeData(animeCollection, id, animeInfo, episodes);
         }
       }
     } catch (error) {
@@ -52,6 +46,8 @@ async function fetchAnimeList() {
     }
     currentPage++;
   }
+
+  await client.close();
 }
 
 // Fetch anime info
@@ -66,7 +62,7 @@ async function fetchAnimeInfo(id) {
 }
 
 // Fetch episodes
-async function fetchEpisodes(id) {
+async function fetchEpisodes(id, episodesCollection) {
   try {
     const response = await axios.get(`https://hianimes.animoon.me/anime/episodes/${id}`);
     const episodes = response.data.episodes;
@@ -74,15 +70,14 @@ async function fetchEpisodes(id) {
     for (let episode of episodes) {
       const { episodeId } = episode;
 
-      // Check if episode already exists in Firestore
-      const episodeRef = doc(db, 'episodesStream', episodeId.toString());
-      const episodeDoc = await getDoc(episodeRef);
-      if (episodeDoc.exists()) {
+      // Check if episode already exists in MongoDB
+      const existingEpisode = await episodesCollection.findOne({ _id: episodeId });
+      if (existingEpisode) {
         console.log(`Episode ${episodeId} already exists, skipping.`);
-        continue; // Skip fetching streams if episode exists
+        continue;
       }
 
-      console.log(`Processing episode ID: ${episodeId}`); // Log the episode ID
+      console.log(`Processing episode ID: ${episodeId}`);
       const streams = await fetchStreamLinks(episodeId);
       episode.streams = streams;
     }
@@ -111,34 +106,35 @@ async function fetchStreamLinks(episodeId) {
   }
 }
 
-// Store anime data in Firestore
-async function storeAnimeData(animeId, animeInfo, episodes) {
-  const animeRef = doc(db, 'animeInfo', animeId.toString());
+// Store anime data in MongoDB
+async function storeAnimeData(animeCollection, animeId, animeInfo, episodes) {
   const animeData = {
+    _id: animeId, // Use anime ID as the unique key
     ...animeInfo,
     episodes: episodes.map(episode => episode.episodeId) // Reference episode IDs
   };
 
   try {
-    await setDoc(animeRef, animeData);
+    await animeCollection.insertOne(animeData);
     console.log(`Anime data for ${animeInfo.title} stored successfully.`);
 
-    // Store each episode by episodeId
+    // Store each episode
+    const episodesCollection = client.db(dbName).collection('episodesStream');
     for (const episode of episodes) {
       const { episodeId } = episode;
-      await storeEpisodeData(episodeId, episode);
+      await storeEpisodeData(episodesCollection, episodeId, episode);
     }
   } catch (error) {
     console.error(`Error storing anime data: ${error.message}`);
   }
 }
 
-// Store episode data with episodeId as key
-async function storeEpisodeData(episodeId, episodeData) {
-  console.log(`Storing data for episode ID: ${episodeId}`); // Log the episode ID
-  const episodeRef = doc(db, 'episodesStream', episodeId.toString());
+// Store episode data in MongoDB
+async function storeEpisodeData(episodesCollection, episodeId, episodeData) {
+  console.log(`Storing data for episode ID: ${episodeId}`);
+  const episodeDoc = { _id: episodeId, ...episodeData };
   try {
-    await setDoc(episodeRef, episodeData);
+    await episodesCollection.insertOne(episodeDoc);
     console.log(`Episode data for ${episodeId} stored successfully.`);
   } catch (error) {
     console.error(`Error storing episode data for ${episodeId}: ${error.message}`);
