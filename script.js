@@ -14,7 +14,7 @@ async function fetchAnimeList() {
   const animeCollection = db.collection('animeInfo');
   const episodesCollection = db.collection('episodesStream');
 
-  let currentPage = 150;
+  let currentPage = 200;
   const totalPages = 208;
 
   while (currentPage <= totalPages) {
