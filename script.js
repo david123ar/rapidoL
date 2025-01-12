@@ -55,7 +55,7 @@ async function fetchAnimeList() {
 // Fetch anime info
 async function fetchAnimeInfo(id) {
   try {
-    const response = await axios.get(`https://hianimes.animoon.me/anime/info?id=${id}`);
+    const response = await axios.get(`https://vimal.animoon.me/api/info?id=${id}`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching info for anime ID ${id}: ${error.message}`);
@@ -66,23 +66,39 @@ async function fetchAnimeInfo(id) {
 // Fetch episodes
 async function fetchEpisodes(id, episodesCollection, currentPage) {
   try {
-    const response = await axios.get(`https://hianimes.animoon.me/anime/episodes/${id}`);
-    const episodes = response.data.episodes;
+    // Fetch episodes from the new endpoint
+    const response = await axios.get(`https://vimal.animoon.me/api/episodes/${id}`);
+    const { success, results } = response.data;
+
+    if (!success) {
+      console.error(`Failed to fetch episodes for anime ID ${id} on page ${currentPage}`);
+      return [];
+    }
+
+    const episodes = results.episodes;
 
     for (let episode of episodes) {
-      const { episodeId } = episode;
+      const { id: episodeId, episode_no, title, japanese_title, filler } = episode;
 
       // Check if episode already exists in MongoDB
       const existingEpisode = await episodesCollection.findOne({ _id: episodeId });
       if (existingEpisode) {
-        console.log(`Episode ${episodeId} already exists on page ${currentPage}, skipping.`);
+        console.log(`Episode ${episode_no} (${title}) already exists, skipping.`);
         continue;
       }
 
-      console.log(`Processing episode ID: ${episodeId} on page ${currentPage}`);
+      console.log(`Processing episode ${episode_no}: ${title} (ID: ${episodeId}) on page ${currentPage}`);
+
+      // Fetch stream links for the episode
       const streams = await fetchStreamLinks(episodeId);
-      episode.streams = streams;
+      if (streams) {
+        // Append streams to the episode object
+        episode.streams = streams;
+      } else {
+        console.log(`No stream links found for episode ID: ${episodeId}`);
+      }
     }
+
     return episodes;
   } catch (error) {
     console.error(`Error fetching episodes for anime ID ${id} on page ${currentPage}: ${error.message}`);
@@ -100,7 +116,7 @@ async function fetchStreamLinks(episodeId) {
     return {
       raw: rawStream.data,
       sub: subStream.data,
-      dub: dubStream.data
+      dub: dubStream.data,
     };
   } catch (error) {
     console.error(`Error fetching stream links for episode ID ${episodeId}: ${error.message}`);
@@ -113,18 +129,18 @@ async function storeAnimeData(animeCollection, animeId, animeInfo, episodes) {
   const animeData = {
     _id: animeId, // Use anime ID as the unique key
     ...animeInfo,
-    episodes: episodes.map(episode => episode.episodeId) // Reference episode IDs
+    episodes: episodes.map((episode) => episode.id), // Reference episode IDs
   };
 
   try {
     await animeCollection.insertOne(animeData);
-    console.log(`Anime data for ${animeInfo.title} stored successfully on page.`);
+    console.log(`Anime data for ${animeInfo.title} stored successfully.`);
 
     // Store each episode
     const episodesCollection = client.db(dbName).collection('episodesStream');
     for (const episode of episodes) {
-      const { episodeId } = episode;
-      console.log(`Storing episode data for episode ID: ${episodeId} on page...`);
+      const { id: episodeId } = episode;
+      console.log(`Storing episode data for episode ID: ${episodeId}...`);
       await storeEpisodeData(episodesCollection, episodeId, episode);
     }
   } catch (error) {
@@ -147,4 +163,4 @@ async function storeEpisodeData(episodesCollection, episodeId, episodeData) {
 // Start the process
 fetchAnimeList()
   .then(() => console.log('Data fetching complete.'))
-  .catch(err => console.error(`Error fetching anime data: ${err.message}`));
+  .catch((err) => console.error(`Error fetching anime data: ${err.message}`));
