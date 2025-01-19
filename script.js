@@ -4,13 +4,21 @@ const { MongoClient } = require('mongodb'); // Install with `npm install mongodb
 // MongoDB Configuration
 const mongoUri = 'mongodb://root:Imperial_king2004@145.223.118.168:27017/?authSource=admin';
 const dbName = 'mydatabase';
-const collectionName = 'animoon-home';
+const collectionName = 'animoon-schedule';
 
 // Initialize MongoDB Client
 const client = new MongoClient(mongoUri);
 
+// Utility function to format date as YYYY-MM-DD
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // Fetch and Store Data Function
-async function fetchAndStoreData() {
+async function fetchAndStoreScheduleData(year, month) {
   try {
     // Connect to MongoDB
     await client.connect();
@@ -19,69 +27,37 @@ async function fetchAndStoreData() {
     const db = client.db(dbName);
     const collection = db.collection(collectionName);
 
-    let data;
-    let retryCount = 0;
+    const firstDate = new Date(year, month - 1, 1); // First day of the month
+    const lastDate = new Date(year, month, 0); // Last day of the month
 
-    // Fetch Data and Retry if `genres` is empty
-    do {
-      const apiUrl = 'https://vimal.animoon.me/api/';
+    const scheduleData = [];
+
+    // Fetch data for each day in the month
+    for (let date = new Date(firstDate); date <= lastDate; date.setDate(date.getDate() + 1)) {
+      const formattedDate = formatDate(date);
+      const apiUrl = `https://vimal.animoon.me/api/schedule?date=${formattedDate}`;
+
       const response = await fetch(apiUrl);
-
       if (!response.ok) {
-        throw new Error(`Failed to fetch data: ${response.statusText}`);
+        console.error(`Failed to fetch data for ${formattedDate}: ${response.statusText}`);
+        continue;
       }
 
-      data = await response.json();
-
-      if (!data.success || !data.results) {
-        throw new Error('Invalid API response structure');
+      const data = await response.json();
+      if (data.success && data.results.length > 0) {
+        scheduleData.push(...data.results);
+        console.log(`Fetched data for ${formattedDate}`);
       }
+    }
 
-      retryCount++;
-      if (retryCount > 5) {
-        throw new Error('Max retry attempts reached');
-      }
-    } while (data.results.genres.length === 0);
-
-    // Process and Store Data
-    const results = data.results;
-
-    for (const key in results) {
-      const value = results[key];
-
-      if (key === 'genres') {
-        // Insert genres directly as a single document
-        if (value.length > 0) {
-          await collection.updateOne(
-            { category: 'genres' },
-            { $set: { category: key, data: value, updatedAt: new Date() } },
-            { upsert: true }
-          );
-          console.log(`Genres updated successfully`);
-        }
-      } else if (Array.isArray(value)) {
-        // Filter documents with a `title` field
-        const filteredDocuments = value.filter((item) => item.title);
-
-        if (filteredDocuments.length > 0) {
-          for (const doc of filteredDocuments) {
-            await collection.updateOne(
-              { category: key, title: doc.title },
-              { $set: { ...doc, category: key, updatedAt: new Date() } },
-              { upsert: true }
-            );
-          }
-          console.log(`Updated documents for category "${key}"`);
-        }
-      } else if (typeof value === 'object' && value !== null && value.title) {
-        // Update single object documents with `title`
-        await collection.updateOne(
-          { category: key, title: value.title },
-          { $set: { ...value, category: key, updatedAt: new Date() } },
-          { upsert: true }
-        );
-        console.log(`Updated document for category "${key}"`);
-      }
+    if (scheduleData.length > 0) {
+      // Update the MongoDB collection with the schedule data
+      await collection.updateOne(
+        { year, month },
+        { $set: { schedule: scheduleData, firstDate: formatDate(firstDate), lastDate: formatDate(lastDate), updatedAt: new Date() } },
+        { upsert: true }
+      );
+      console.log(`Updated schedule for ${year}-${month}`);
     }
   } catch (error) {
     console.error('Error:', error.message);
@@ -92,8 +68,11 @@ async function fetchAndStoreData() {
   }
 }
 
-// Schedule Data Fetch Every Hour
-setInterval(fetchAndStoreData, 60 * 60 * 1000);
+// Run the function for the entire month (e.g., for January 2025)
+fetchAndStoreScheduleData(2025, 1);
 
-// Run the Function Immediately
-fetchAndStoreData();
+// Optional: You can set this to run periodically for each new month
+setInterval(() => {
+  const now = new Date();
+  fetchAndStoreScheduleData(now.getFullYear(), now.getMonth() + 1);
+}, 60 * 60 * 1000); // Run every hour (can adjust as needed)
