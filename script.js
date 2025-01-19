@@ -1,164 +1,101 @@
-const axios = require('axios');
-const { MongoClient } = require('mongodb');
+const { MongoClient } = require('mongodb'); // Install with `npm install mongodb`
+// const fetch = require('node-fetch'); // Install with `npm install node-fetch`
 
-// MongoDB configuration
+// MongoDB Configuration
 const mongoUri = 'mongodb://root:Imperial_king2004@145.223.118.168:27017/?authSource=admin';
-const dbName = 'mydatabase'; // Change the database name as needed
+const dbName = 'mydatabase';
+const collectionName = 'animoon-pages';
 
-// Initialize MongoDB Client
-const client = new MongoClient(mongoUri);
+// Categories to Fetch
+const categories = [
+  "top-airing", "most-popular", "most-favorite", "completed", "recently-updated", "recently-added",
+  "top-upcoming", "subbed-anime", "dubbed-anime", "movie", "special", "ova", "ona", "tv",
+  "genre/action", "genre/adventure", "genre/cars", "genre/comedy", "genre/dementia", "genre/demons",
+  "genre/drama", "genre/ecchi", "genre/fantasy", "genre/game", "genre/harem", "genre/historical",
+  "genre/horror", "genre/isekai", "genre/josei", "genre/kids", "genre/magic", "genre/martial-arts",
+  "genre/mecha", "genre/military", "genre/music", "genre/mystery", "genre/parody", "genre/police",
+  "genre/psychological", "genre/romance", "genre/samurai", "genre/school", "genre/sci-fi",
+  "genre/seinen", "genre/shoujo", "genre/shoujo-ai", "genre/shounen", "genre/shounen-ai",
+  "genre/slice-of-life", "genre/space", "genre/sports", "genre/super-power", "genre/supernatural",
+  "genre/thriller", "genre/vampire", "az-list", "az-list/other", "az-list/0-9", "az-list/a", "az-list/b",
+  "az-list/c", "az-list/d", "az-list/e", "az-list/f", "az-list/g", "az-list/h", "az-list/i", "az-list/j",
+  "az-list/k", "az-list/l", "az-list/m", "az-list/n", "az-list/o", "az-list/p", "az-list/q", "az-list/r",
+  "az-list/s", "az-list/t", "az-list/u", "az-list/v", "az-list/w", "az-list/x", "az-list/y", "az-list/z"
+];
 
-// Fetch data with retry logic
-async function fetchWithRetry(url, retries = 3, delay = 1000) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await axios.get(url);
-            return response;
-        } catch (error) {
-            if (i === retries - 1) throw error; // Throw if the last attempt fails
-            console.error(`Retrying (${i + 1}/${retries})...`);
-            await new Promise(resolve => setTimeout(resolve, delay)); // Wait before retrying
-        }
-    }
-}
+// Fetch and Update Data Function
+async function fetchAndUpdateData() {
+  const client = new MongoClient(mongoUri);
 
-async function fetchAnimeList() {
+  try {
     await client.connect();
+    console.log('Connected to MongoDB');
+
     const db = client.db(dbName);
-    const animeCollection = db.collection('animeInfo');
-    const episodesCollection = db.collection('episodesStream');
+    const collection = db.collection(collectionName);
 
-    let currentPage = 200; // Change starting page as needed
-    const totalPages = 208;
+    for (const category of categories) {
+      let page = 1;
+      let totalPages = 1;
 
-    while (currentPage <= totalPages) {
-        console.log(`Processing page number: ${currentPage}`);
-        try {
-            const response = await fetchWithRetry(`https://vimal.animoon.me/api/az-list?page=${currentPage}`);
-            const animeData = response.data.results.data;
+      do {
+        const apiUrl = `https://vimal.animoon.me/api/${encodeURIComponent(category)}?page=${page}`;
+        const response = await fetch(apiUrl);
 
-            for (const anime of animeData) {
-                const { id, title } = anime;
-                console.log(`Processing anime: ${title} (ID: ${id}) on page ${currentPage}`);
-
-                // Check if anime already exists in MongoDB
-                const existingAnime = await animeCollection.findOne({ _id: id });
-                if (existingAnime) {
-                    console.log(`Anime ${title} (ID: ${id}) already exists, skipping.`);
-                    continue;
-                }
-
-                // Fetch anime info and episodes only if anime doesn't exist
-                const animeInfo = await fetchAnimeInfo(id);
-                const episodes = await fetchEpisodes(id, episodesCollection, currentPage);
-
-                if (animeInfo && episodes.length > 0) {
-                    console.log(`Storing anime data for ${title} (ID: ${id}) on page ${currentPage}...`);
-                    await storeAnimeData(animeCollection, id, animeInfo, episodes);
-                }
-            }
-        } catch (error) {
-            console.error(`Error fetching page ${currentPage}: ${error.message}`);
+        if (!response.ok) {
+          console.error(`Failed to fetch category "${category}" page ${page}: ${response.statusText}`);
+          break;
         }
-        currentPage++;
-    }
 
+        const data = await response.json();
+
+        if (!data.success || !data.results || !data.results.data) {
+          console.error(`Invalid or empty response for category "${category}" page ${page}`);
+          break;
+        }
+
+        totalPages = data.results.totalPages || 1;
+        const resultsData = data.results.data;
+
+        for (const item of resultsData) {
+          // Only update if `title` field exists in the response
+          if (item.title) {
+            await collection.updateOne(
+              { category, page, id: item.id }, // Filter by category, page, and unique ID
+              {
+                $set: {
+                  ...item,
+                  category,
+                  page,
+                  updatedAt: new Date()
+                }
+              },
+              { upsert: true } // Create a new document if it doesn't exist
+            );
+            console.log(`Updated document for category "${category}" page ${page}, ID: ${item.id}`);
+          }
+        }
+
+        page++;
+      } while (page <= totalPages);
+    }
+  } catch (error) {
+    console.error('Error:', error.message);
+  } finally {
     await client.close();
+    console.log('MongoDB connection closed');
+  }
 }
 
-// Fetch anime info
-async function fetchAnimeInfo(id) {
-    try {
-        const response = await fetchWithRetry(`https://vimal.animoon.me/api/info?id=${id}`);
-        return response.data.results;
-    } catch (error) {
-        console.error(`Error fetching info for anime ID ${id}: ${error.message}`);
-        return null;
-    }
-}
+// Run Process Continuously
+(async function runContinuously() {
+  while (true) {
+    console.log('Starting data update at', new Date().toISOString());
 
-// Fetch episodes
-async function fetchEpisodes(id, episodesCollection, currentPage) {
-    try {
-        const response = await fetchWithRetry(`https://vimal.animoon.me/api/episodes/${id}`);
-        const episodes = response.data.results.episodes;
+    await fetchAndUpdateData();
 
-        for (let episode of episodes) {
-            const { id: episodeId } = episode;
-
-            // Check if episode already exists in MongoDB
-            const existingEpisode = await episodesCollection.findOne({ _id: episodeId });
-            if (existingEpisode) {
-                console.log(`Episode ${episodeId} already exists on page ${currentPage}, skipping.`);
-                continue;
-            }
-
-            console.log(`Processing episode ID: ${episodeId} on page ${currentPage}`);
-            const streams = await fetchStreamLinks(episodeId);
-            episode.streams = streams;
-        }
-        return episodes;
-    } catch (error) {
-        console.error(`Error fetching episodes for anime ID ${id} on page ${currentPage}: ${error.message}`);
-        return [];
-    }
-}
-
-// Fetch stream links
-async function fetchStreamLinks(episodeId) {
-    try {
-        const rawStream = await fetchWithRetry(`https://vimal.animoon.me/api/stream?id=${episodeId}&server=hd-1&type=raw`);
-        const subStream = await fetchWithRetry(`https://vimal.animoon.me/api/stream?id=${episodeId}&server=hd-1&type=sub`);
-        const dubStream = await fetchWithRetry(`https://vimal.animoon.me/api/stream?id=${episodeId}&server=hd-1&type=dub`);
-
-        return {
-            raw: rawStream.data.results || null,
-            sub: subStream.data.results || null,
-            dub: dubStream.data.results || null
-        };
-    } catch (error) {
-        console.error(`Error fetching stream links for episode ID ${episodeId}: ${error.message}`);
-        return null;
-    }
-}
-
-// Store anime data in MongoDB
-async function storeAnimeData(animeCollection, animeId, animeInfo, episodes) {
-    const animeData = {
-        _id: animeId, // Use anime ID as the unique key
-        ...animeInfo,
-        episodes: episodes.map(episode => episode.id) // Reference episode IDs
-    };
-
-    try {
-        await animeCollection.insertOne(animeData);
-        console.log(`Anime data for ${animeInfo.title} stored successfully.`);
-
-        // Store each episode
-        const episodesCollection = client.db(dbName).collection('episodesStream');
-        for (const episode of episodes) {
-            const { id: episodeId } = episode;
-            console.log(`Storing episode data for episode ID: ${episodeId}...`);
-            await storeEpisodeData(episodesCollection, episodeId, episode);
-        }
-    } catch (error) {
-        console.error(`Error storing anime data: ${error.message}`);
-    }
-}
-
-// Store episode data in MongoDB
-async function storeEpisodeData(episodesCollection, episodeId, episodeData) {
-    console.log(`Storing data for episode ID: ${episodeId}`);
-    const episodeDoc = { _id: episodeId, ...episodeData };
-    try {
-        await episodesCollection.insertOne(episodeDoc);
-        console.log(`Episode data for ${episodeId} stored successfully.`);
-    } catch (error) {
-        console.error(`Error storing episode data for ${episodeId}: ${error.message}`);
-    }
-}
-
-// Start the process
-fetchAnimeList()
-    .then(() => console.log('Data fetching complete.'))
-    .catch(err => console.error(`Error fetching anime data: ${err.message}`));
+    console.log('Data update completed. Restarting after 6 hours...');
+    // Wait for 6 hours (21600000 ms) before restarting
+    await new Promise((resolve) => setTimeout(resolve, 21600000));
+  }
+})();
