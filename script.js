@@ -1,95 +1,93 @@
 const { MongoClient } = require('mongodb');
+// const fetch = require('node-fetch'); // Ensure this is installed with `npm install node-fetch`
 
 // MongoDB Configuration
 const mongoUri = 'mongodb://root:Imperial_king2004@145.223.118.168:27017/?authSource=admin';
 const dbName = 'mydatabase';
+const collectionName = 'animoon-home';
 
-// Categories to Fetch
-const categories = [
-  "top-airing", "most-popular", "most-favorite", "completed", "recently-updated", "recently-added",
-  "top-upcoming", "subbed-anime", "dubbed-anime", "movie", "special", "ova", "ona", "tv",
-  "genre/action", "genre/adventure", "genre/cars", "genre/comedy", "genre/dementia", "genre/demons",
-  "genre/drama", "genre/ecchi", "genre/fantasy", "genre/game", "genre/harem", "genre/historical",
-  "genre/horror", "genre/isekai", "genre/josei", "genre/kids", "genre/magic", "genre/martial-arts",
-  "genre/mecha", "genre/military", "genre/music", "genre/mystery", "genre/parody", "genre/police",
-  "genre/psychological", "genre/romance", "genre/samurai", "genre/school", "genre/sci-fi",
-  "genre/seinen", "genre/shoujo", "genre/shoujo-ai", "genre/shounen", "genre/shounen-ai",
-  "genre/slice-of-life", "genre/space", "genre/sports", "genre/super-power", "genre/supernatural",
-  "genre/thriller", "genre/vampire", "az-list", "az-list/other", "az-list/0-9", "az-list/a", "az-list/b",
-  "az-list/c", "az-list/d", "az-list/e", "az-list/f", "az-list/g", "az-list/h", "az-list/i", "az-list/j",
-  "az-list/k", "az-list/l", "az-list/m", "az-list/n", "az-list/o", "az-list/p", "az-list/q", "az-list/r",
-  "az-list/s", "az-list/t", "az-list/u", "az-list/v", "az-list/w", "az-list/x", "az-list/y", "az-list/z"
-];
+// Initialize MongoDB Client
+const client = new MongoClient(mongoUri);
 
-// Fetch and Update Data Function
-async function fetchAndUpdateData() {
-  const client = new MongoClient(mongoUri);
+// Function to parse time strings and add 30 minutes
+function addMinutesToTime(timeString, minutesToAdd) {
+  const [hour, minute] = timeString.split(':').map(Number);
+  const date = new Date();
+  date.setHours(hour, minute + minutesToAdd, 0, 0);
+  return date;
+}
 
+// Fetch and Store Data Function
+async function fetchAndStoreData() {
   try {
+    // Connect to MongoDB
     await client.connect();
     console.log('Connected to MongoDB');
 
     const db = client.db(dbName);
+    const collection = db.collection(collectionName);
 
-    for (const category of categories) {
-      let page = 1;
-      let totalPages = 1;
+    let data;
+    let retryCount = 0;
 
-      do {
-        const apiUrl = `https://vimal.animoon.me/api/${encodeURIComponent(category)}?page=${page}`;
-        const response = await fetch(apiUrl);
+    // Fetch Data and Retry if `results` is empty
+    do {
+      const apiUrl = 'https://vimal.animoon.me/api/';
+      const response = await fetch(apiUrl);
 
-        if (!response.ok) {
-          console.error(`Failed to fetch category "${category}" page ${page}: ${response.statusText}`);
-          break;
-        }
+      if (!response.ok) {
+        throw new Error(`Failed to fetch data: ${response.statusText}`);
+      }
 
-        const data = await response.json();
+      data = await response.json();
 
-        if (!data.success || !data.results || !data.results.data) {
-          console.error(`Invalid or empty response for category "${category}" page ${page}`);
-          break;
-        }
+      if (!data.success || !data.results) {
+        throw new Error('Invalid API response structure');
+      }
 
-        totalPages = data.results.totalPages || 1;
-        const resultsData = data.results.data;
+      retryCount++;
+      if (retryCount > 5) {
+        throw new Error('Max retry attempts reached');
+      }
+    } while (Object.keys(data.results).length === 0);
 
-        const collection = db.collection(category.replace(/\//g, '_')); // Replace `/` to avoid collection name issues
+    const { schedule } = data.results.today || {};
 
-        // Store the entire page data as one document
-        await collection.updateOne(
-          { page }, // Filter by page
-          {
-            $set: {
-              data: resultsData,
-              updatedAt: new Date(),
-            },
-          },
-          { upsert: true } // Create a new document if it doesn't exist
-        );
+    // Filter titles with specific conditions
+    const filteredSchedule = schedule.filter((item) => {
+      // Add your title conditions here. For example:
+      return item.title;
+    });
 
-        console.log(`Updated page ${page} for category "${category}"`);
+    // Wait for the scheduled time (+30 minutes) to fetch again
+    for (const item of filteredSchedule) {
+      const targetTime = addMinutesToTime(item.time, 30);
+      const now = new Date();
 
-        page++;
-      } while (page <= totalPages);
+      if (targetTime > now) {
+        const delay = targetTime - now;
+        console.log(`Waiting ${delay / 1000} seconds to fetch again for title: ${item.title}`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        await fetchAndStoreData(); // Re-fetch data after the delay
+      }
     }
+
+    // Store the entire `results` object as a single document
+    await collection.updateOne(
+      { _id: 'animoon-home' }, // Use a fixed _id for easy retrieval
+      { $set: { ...data.results, updatedAt: new Date() } },
+      { upsert: true } // Insert if not exists, update otherwise
+    );
+
+    console.log('Data stored successfully in animoon-home collection');
   } catch (error) {
     console.error('Error:', error.message);
   } finally {
+    // Close MongoDB Connection
     await client.close();
     console.log('MongoDB connection closed');
   }
 }
 
-// Run Process Continuously
-(async function runContinuously() {
-  while (true) {
-    console.log('Starting data update at', new Date().toISOString());
-
-    await fetchAndUpdateData();
-
-    console.log('Data update completed. Restarting after 6 hours...');
-    // Wait for 6 hours (21600000 ms) before restarting
-    await new Promise((resolve) => setTimeout(resolve, 21600000));
-  }
-})();
+// Run the Function Immediately
+fetchAndStoreData();
