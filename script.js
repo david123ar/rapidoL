@@ -52,7 +52,7 @@ async function updateStreamingLinks() {
 
     // Step 1: Fetch total pages of recently updated animes
     const initialData = await fetchWithRetry(
-      "https://vimal.animoon.me/api/recently-updated?page=1"
+      "https://vimal.animoon.me/api/dubbed-anime?page=1"
     );
 
     if (!initialData.success || !initialData.results) {
@@ -66,7 +66,7 @@ async function updateStreamingLinks() {
     for (let page = 1; page <= totalPages; page++) {
       console.log(`Processing page ${page}/${totalPages}`);
       const pageData = await fetchWithRetry(
-        `https://vimal.animoon.me/api/recently-updated?page=${page}`
+        `https://vimal.animoon.me/api/dubbed-anime?page=${page}`
       );
 
       if (!pageData.success || !pageData.results || !pageData.results.data) {
