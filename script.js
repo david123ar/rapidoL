@@ -1,390 +1,105 @@
-const { MongoClient, ClientSession } = require("mongodb");
+const { MongoClient } = require('mongodb');
 
-// MongoDB Configuration
+// MongoDB URI and Database details
 const mongoUri =
   "mongodb://root:Imperial_king2004@145.223.118.168:27017/?authSource=admin";
 const dbName = "mydatabase";
-const episodesStreamCollectionName = "episodesStream";
-const animeInfoCollectionName = "animeInfo";
+const animeCollectionName = "animeInfo";
 
-// Initialize MongoDB Client
-const client = new MongoClient(mongoUri);
+// Function to fetch data from the animeInfo collection, process the 'Aired' field, and update documents
+async function fetchAndUpdateAiredData() {
+  const client = new MongoClient(mongoUri);
 
-// Categories to update
-const categories = ["sub", "dub", "raw"];
-
-// Helper function to retry fetching data with a maximum of 5 attempts
-async function fetchWithRetry(url, retries = 5) {
-  let attempts = 0;
-  while (attempts < retries) {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}`);
-      }
-      return await response.json();
-    } catch (error) {
-      attempts++;
-      console.error(
-        `Error fetching ${url}: ${error.message}. Attempt ${attempts} of ${retries}`
-      );
-      if (attempts === retries) {
-        throw new Error(
-          `Failed to fetch data from ${url} after ${retries} attempts`
-        );
-      }
-      // Wait for 2 seconds before retrying
-      // await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-  }
-}
-
-// Function to update streaming links for all episodes and categories
-async function updateStreamingLinks() {
   try {
+    // Step 1: Connect to MongoDB
+    console.log("Connecting to MongoDB...");
     await client.connect();
     console.log("Connected to MongoDB");
+
     const db = client.db(dbName);
-    const episodesStreamCollection = db.collection(
-      episodesStreamCollectionName
-    );
-    const animeInfoCollection = db.collection(animeInfoCollectionName);
 
-    // Step 1: Fetch total pages of recently updated animes
-    const initialData = await fetchWithRetry(
-      "https://vimal.animoon.me/api/recently-updated?page=1"
-    );
+    // Step 2: Fetch data from 'animeInfo' collection
+    console.log("Fetching data from 'animeInfo' collection...");
+    const animeCollection = db.collection(animeCollectionName);
+    const animeData = await animeCollection.find({}).toArray();
+    console.log(`Fetched ${animeData.length} documents from 'animeInfo' collection.`);
 
-    if (!initialData.success || !initialData.results) {
-      throw new Error("Failed to fetch total pages from Recently Updated API");
+    // Step 3: Function to split a date string (e.g., "Jul-25,-2012") into month, day, and year
+    function splitDate(dateStr) {
+      console.log(`Splitting date: ${dateStr}`);
+      const [month, dayYear] = dateStr.split('-');
+      const [day, year] = dayYear.split(',');
+      console.log(`Split date: month=${month}, day=${day}, year=${year}`);
+      return { month, day, year };
     }
 
-    const totalPages = 1;
-    console.log(`Total Pages: ${totalPages}`);
+    // Step 4: Iterate through each anime and process the 'Aired' field
+    const processedData = animeData.map((anime, index) => {
+      console.log(`Processing anime ${index + 1}: ${anime._id}`);
 
-    // Step 2: Iterate through all pages and fetch anime info and episodes
-    for (let page = 1; page <= totalPages; page++) {
-      console.log(`Processing page ${page}/${totalPages}`);
-      const pageData = await fetchWithRetry(
-        `https://vimal.animoon.me/api/recently-updated?page=${page}`
-      );
+      const aired = anime.info?.results?.data?.animeInfo?.Aired;
+      console.log(`Aired field: ${aired}`);
 
-      if (!pageData.success || !pageData.results || !pageData.results.data) {
-        console.error(`Error fetching data for page ${page}`);
-        continue;
+      let startDate = null;
+      let endDate = null;
+
+      // Step 5: If 'Aired' exists and contains '-to-', split it
+      if (aired && aired.includes('-to-')) {
+        const [startDateStr, endDateStr] = aired.split('-to-').map(date => date.trim());
+        console.log(`Split Aired field into: startDateStr=${startDateStr}, endDateStr=${endDateStr}`);
+
+        // Check if the end date is '?' and handle accordingly
+        if (endDateStr !== '?' && endDateStr) {
+          console.log(`Processing endDate: ${endDateStr}`);
+          endDate = splitDate(endDateStr);
+        }
+
+        // Split startDate into date, month, year
+        console.log(`Processing startDate: ${startDateStr}`);
+        startDate = splitDate(startDateStr);
       }
 
-      const animes = pageData.results.data;
-
-      // Step 3: Process Each Anime
-      for (const anime of animes) {
-        const { id, title, poster, description } = anime;
-
-        // Step 4: Fetch Anime Info and Episodes with retry mechanism for missing titles
-        let infoData, episodesData;
-        let retryCount = 0;
-        while (retryCount < 5) {
-          try {
-            infoData = await fetchWithRetry(
-              `https://vimal.animoon.me/api/info?id=${id}`
-            );
-            episodesData = await fetchWithRetry(
-              `https://vimal.animoon.me/api/episodes/${id}`
-            );
-            // Check if the info title and episode title are available
-            if (
-              infoData.results.data.title &&
-              episodesData.results.episodes[0].title
-            ) {
-              break; // Exit the retry loop if titles are present
-            }
-            throw new Error("Missing title in anime info or episode info");
-          } catch (error) {
-            retryCount++;
-            console.error(
-              `Error fetching info or episodes for anime ID: ${id}. Attempt ${retryCount}/5`
-            );
-            if (retryCount === 5) {
-              console.error(
-                `Failed to fetch data after 5 retries for anime ID: ${id}`
-              );
-              continue;
-            }
-            // await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait before retrying
-          }
-        }
-
-        if (!infoData || !episodesData) {
-          console.error(
-            `Skipping anime ID: ${id} due to missing info or episode data`
-          );
-          continue;
-        }
-
-        if (
-          episodesData &&
-          episodesData?.results?.episodes &&
-          episodesData?.results?.episodes?.length > 0
-        ) { 
-
-        const existingAnime = await animeInfoCollection.findOne({ _id: id });
-
-        if (existingAnime) {
-          // Update the existing anime document
-          await animeInfoCollection.updateOne(
-            { _id: id },
-            {
-              $set: {
-                info: infoData,
-                episodes: episodesData,
-              },
-            }
-          );
-          console.log("Anime document updated successfully");
-        } else {
-          // If the anime doesn't exist, insert a new document
-          await animeInfoCollection.insertOne({
-            _id: id,
-            info: infoData,
-            episodes: episodesData,
-          });
-          console.log("New anime document inserted successfully");
-        }
-
-        const episodesList = episodesData?.results?.episodes;
-
-        {
-          // Step 5: Process Each Episode
-          for (const episode of episodesList) {
-            const { id: episodeId, episode_no } = episode;
-
-            // Check if Episode Exists in episodesStream Collection
-            const existingEpisode = await episodesStreamCollection.findOne({
-              _id: episodeId,
-            });
-
-            if (!existingEpisode) {
-              console.log(`Fetching new episode with ID: ${episodeId}`);
-
-              const categoryData = {};
-
-              // Step 6: Check Dub before fetching streaming links
-              const isRaw = await fetch(
-                `https://vimal.animoon.me/api/servers/${episodeId}`
-              );
-              const rawT = await isRaw.json(); //// finish it
-              // If Dub exists and is greater than episode_no, skip raw
-
-              if (rawT?.results.some((item) => item.type !== "raw")) {
-                categoryData["raw"] = []; // Skip raw category if dub is greater than episode_no
-                console.log(
-                  `Skipping raw category for episode ID: ${episodeId} as dub is greater than episode_no`
-                );
-              }
-
-              // Step 7: Fetch Streaming Links for All Categories with retry for sub and dub if link is missing
-              let retryCountLinks = 0;
-              while (retryCountLinks < 5) {
-                try {
-                  let hasValidLink = false;
-                  let episodeData;
-
-                  // If Dub is not valid or doesn't exist, we fetch raw or sub
-                  if (rawT?.results.some((item) => item.type === "raw")) {
-                    // Fetch sub or raw category if dub is invalid or not available
-                    if (
-                      !existingEpisode?.streams?.raw?.results?.streamingLink
-                        ?.link?.file
-                    ) {
-                      episodeData = await fetchWithRetry(
-                        `https://newgogo.animoon.me/api/data?episodeId=${encodeURIComponent(
-                          episodeId
-                        )}&category=raw`
-                      );
-
-                      if (
-                        episodeData.link &&
-                        episodeData.link.file &&
-                        episodeData.link.file.length > 0
-                      ) {
-                        categoryData.raw = episodeData;
-                        hasValidLink = true;
-                        break;
-                      }
-                    } else {
-                      categoryData.raw = [];
-                    }
-
-                    // If no valid link found in sub/raw, retry
-                    if (
-                      !hasValidLink &&
-                      rawT?.results.some((item) => item.type === "raw")
-                    ) {
-                      retryCountLinks++;
-                      console.error(
-                        `Error fetching valid link for raw episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
-                      );
-                      if (retryCountLinks === 5) {
-                        console.error(
-                          `Failed to fetch valid link for raw episode ID: ${episodeId} after 5 retries`
-                        );
-                        break;
-                      }
-                      // Wait for 2 seconds before retrying
-                      await new Promise((resolve) => setTimeout(resolve, 2000));
-                    }
-                  }
-                  if (rawT?.results.some((item) => item.type === "dub")) {
-                    // Fetch sub or raw category if dub is invalid or not available
-                    if (
-                      !existingEpisode?.streams?.dub?.results?.streamingLink
-                        ?.link?.file
-                    ) {
-                      episodeData = await fetchWithRetry(
-                        `https://newgogo.animoon.me/api/data?episodeId=${encodeURIComponent(
-                          episodeId
-                        )}&category=raw`
-                      );
-
-                      if (
-                        episodeData.link &&
-                        episodeData.link.file &&
-                        episodeData.link.file.length > 0
-                      ) {
-                        categoryData.dub = episodeData;
-                        hasValidLink = true;
-                        break;
-                      }
-                    } else {
-                      categoryData.dub = [];
-                    }
-
-                    // If no valid link found in sub/raw, retry
-                    if (
-                      !hasValidLink &&
-                      rawT?.results.some((item) => item.type === "dub")
-                    ) {
-                      retryCountLinks++;
-                      console.error(
-                        `Error fetching valid link for dub episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
-                      );
-                      if (retryCountLinks === 5) {
-                        console.error(
-                          `Failed to fetch valid link for dub episode ID: ${episodeId} after 5 retries`
-                        );
-                        break;
-                      }
-                      // Wait for 2 seconds before retrying
-                      // await new Promise((resolve) => setTimeout(resolve, 2000));
-                    }
-                  }
-                  if (rawT?.results.some((item) => item.type === "sub")) {
-                    // Fetch sub or raw category if dub is invalid or not available
-                    if (
-                      !existingEpisode?.streams?.sub?.results?.streamingLink
-                        ?.link?.file
-                    ) {
-                      episodeData = await fetchWithRetry(
-                        `https://newgogo.animoon.me/api/data?episodeId=${encodeURIComponent(
-                          episodeId
-                        )}&category=sub`
-                      );
-
-                      if (
-                        episodeData.link &&
-                        episodeData.link.file &&
-                        episodeData.link.file.length > 0
-                      ) {
-                        categoryData.sub = episodeData;
-                        hasValidLink = true;
-                        break;
-                      }
-                    } else {
-                      categoryData.sub = [];
-                    }
-
-                    // If no valid link found in sub/raw, retry
-                    if (
-                      !hasValidLink &&
-                      rawT?.results.some((item) => item.type === "sub")
-                    ) {
-                      retryCountLinks++;
-                      console.error(
-                        `Error fetching valid link for sub episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
-                      );
-                      if (retryCountLinks === 5) {
-                        console.error(
-                          `Failed to fetch valid link for sub episode ID: ${episodeId} after 5 retries`
-                        );
-                        break;
-                      }
-                      // Wait for 2 seconds before retrying
-                      // await new Promise((resolve) => setTimeout(resolve, 2000));
-                    }
-                  }
-                } catch (error) {
-                  console.error(
-                    `Error fetching streaming links for inserting episode ID: ${episodeId}: ${error.message}`
-                  );
-                }
-              }
-
-              // Add New Episode to episodesStream Collection with streaming links
-              await episodesStreamCollection.insertOne({
-                _id: episodeId,
-                title: episode.title,
-                episodeId: episodeId,
-                number: episode.episode_no,
-                isFiller: false,
-                streams: {
-                  raw: {
-                    success: true,
-                    results: {
-                      streamingLink: categoryData.raw || [],
-                      servers: [],
-                    },
-                  },
-                  sub: {
-                    success: true,
-                    results: {
-                      streamingLink: categoryData.sub || [],
-                      servers: [],
-                    },
-                  },
-                  dub: {
-                    success: true,
-                    results: {
-                      streamingLink: categoryData.dub || [],
-                      servers: [],
-                    },
-                  },
-                },
-                updatedAt: new Date(),
-              });
-
-              console.log(`Inserted new episode with ID: ${episodeId}`);
-            } else {
-              console.log(
-                `Episode ID: ${episodeId} already exists in episodesStream collection`
-              );
-            }
-          }
-        }} else {
-          console.log("Episodes are empty so , Skipping...")
-        } 
+      // Step 6: If 'Aired' only contains a start date (no '-to-'), split it
+      if (aired && !aired.includes('-to-')) {
+        console.log(`Only start date found in Aired field: ${aired}`);
+        startDate = splitDate(aired.trim());
       }
-    }
 
-    console.log("Finished updating streaming links for all categories");
-  } catch (error) {
-    console.error("Error:", error.message);
+      // Step 7: Prepare the update object with startDate and endDate
+      const updateFields = {};
+      if (startDate) updateFields.startDate = startDate;
+      if (endDate !== null) updateFields.endDate = endDate;
+
+      console.log(`Update fields for anime ${anime._id}: ${JSON.stringify(updateFields)}`);
+
+      // Step 8: If there are any new fields to update, perform the update
+      if (Object.keys(updateFields).length > 0) {
+        console.log(`Updating document with _id: ${anime._id}`);
+        return animeCollection.updateOne(
+          { _id: anime._id },  // Find the document by _id
+          { $set: updateFields } // Update the startDate and endDate fields
+        );
+      }
+
+      return null;  // If no fields to update, return null
+    });
+
+    // Step 9: Wait for all update operations to complete
+    console.log("Waiting for update operations to complete...");
+    const updateResults = await Promise.all(processedData.filter(update => update !== null));
+
+    console.log(`Update Results: ${JSON.stringify(updateResults)}`);
+    return updateResults;
+
+  } catch (err) {
+    // Step 10: Handle errors
+    console.error("Error fetching and updating data:", err);
   } finally {
+    // Step 11: Close the MongoDB connection
     await client.close();
     console.log("MongoDB connection closed");
   }
 }
-const ONE_DAY_IN_MS = 30 * 60 * 1000;
 
-// Start the update process
-updateStreamingLinks();
-setInterval(updateStreamingLinks, ONE_DAY_IN_MS);
+// Step 12: Call the function to fetch data, process the 'Aired' field, and update the documents
+fetchAndUpdateAiredData();
