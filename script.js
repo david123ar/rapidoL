@@ -17,24 +17,26 @@ async function fetchAndUpdateAiredData() {
     console.log("Connected to MongoDB");
 
     const db = client.db(dbName);
-
-    // Step 2: Fetch data from 'animeInfo' collection
-    console.log("Fetching data from 'animeInfo' collection...");
     const animeCollection = db.collection(animeCollectionName);
-    const animeData = await animeCollection.find({}).toArray();
-    console.log(`Fetched ${animeData.length} documents from 'animeInfo' collection.`);
 
-    // Step 3: Function to split a date string (e.g., "Jul-25,-2012") into month, day, and year
-    function splitDate(dateStr) {
-      console.log(`Splitting date: ${dateStr}`);
-      const [month, dayYear] = dateStr.split('-');
-      const [day, year] = dayYear.split(',');
-      console.log(`Split date: month=${month}, day=${day}, year=${year}`);
-      return { month, day, year };
-    }
+    let hasMoreData = true;
+    let lastProcessedId = null;
 
-    // Step 4: Iterate through each anime and process the 'Aired' field
-    for (const anime of animeData) {
+    // Step 2: Process each document one by one
+    while (hasMoreData) {
+      // Fetch one document at a time, starting after the last processed document
+      const query = lastProcessedId ? { _id: { $gt: lastProcessedId } } : {};
+      const anime = await animeCollection.findOne(query);
+
+      if (!anime) {
+        console.log("No more documents to process.");
+        hasMoreData = false;
+        break;
+      }
+
+      // Update last processed ID for pagination
+      lastProcessedId = anime._id;
+
       console.log(`Processing anime: ${anime._id}`);
 
       const aired = anime.info?.results?.data?.animeInfo?.Aired;
@@ -43,7 +45,7 @@ async function fetchAndUpdateAiredData() {
       let startDate = null;
       let endDate = null;
 
-      // Step 5: If 'Aired' exists and contains '-to-', split it
+      // If 'Aired' exists and contains '-to-', split it
       if (aired && aired.includes('-to-')) {
         const [startDateStr, endDateStr] = aired.split('-to-').map(date => date.trim());
         console.log(`Split Aired field into: startDateStr=${startDateStr}, endDateStr=${endDateStr}`);
@@ -59,41 +61,57 @@ async function fetchAndUpdateAiredData() {
         startDate = splitDate(startDateStr);
       }
 
-      // Step 6: If 'Aired' only contains a start date (no '-to-'), split it
+      // If 'Aired' only contains a start date (no '-to-'), split it
       if (aired && !aired.includes('-to-')) {
         console.log(`Only start date found in Aired field: ${aired}`);
         startDate = splitDate(aired.trim());
       }
 
-      // Step 7: Prepare the update object with startDate and endDate
-      const updateFields = {};
-      if (startDate) updateFields.startDate = startDate;
-      if (endDate !== null) updateFields.endDate = endDate;
+      // If no 'Aired' data, set all date fields to null
+      if (!aired || aired === '?') {
+        console.log(`No Aired field found or it contains '?'. Setting all date fields to null.`);
+        startDate = { month: null, day: null, year: null };
+        endDate = null;
+      }
+
+      // Prepare the update object with startDate and endDate
+      const updateFields = { startDate, endDate };
 
       console.log(`Update fields for anime ${anime._id}: ${JSON.stringify(updateFields)}`);
 
-      // Step 8: If there are any new fields to update, perform the update
-      if (Object.keys(updateFields).length > 0) {
-        console.log(`Updating document with _id: ${anime._id}`);
-        await animeCollection.updateOne(
-          { _id: anime._id },  // Find the document by _id
-          { $set: updateFields } // Update the startDate and endDate fields
-        );
-        console.log(`Document with _id: ${anime._id} updated.`);
-      }
+      // Perform the update for the current document
+      await animeCollection.updateOne(
+        { _id: anime._id },  // Find the document by _id
+        { $set: updateFields } // Update the startDate and endDate fields
+      );
+      console.log(`Document with _id: ${anime._id} updated.`);
     }
 
     console.log("All documents processed successfully!");
 
   } catch (err) {
-    // Step 9: Handle errors
+    // Handle errors
     console.error("Error fetching and updating data:", err);
   } finally {
-    // Step 10: Close the MongoDB connection
+    // Close the MongoDB connection
     await client.close();
     console.log("MongoDB connection closed");
   }
 }
 
-// Step 11: Call the function to fetch data, process the 'Aired' field, and update the documents
+// Function to split a date string (e.g., "Jul-25,-2012") into month, day, and year
+function splitDate(dateStr) {
+  if (!dateStr || dateStr === '?') {
+    return { month: null, day: null, year: null }; // Return null values if the date is invalid
+  }
+
+  console.log(`Splitting date: ${dateStr}`);
+  const [month, dayYear] = dateStr.split('-');
+  const [day, year] = dayYear.split(',');
+
+  console.log(`Split date: month=${month}, day=${day}, year=${year}`);
+  return { month, day, year };
+}
+
+// Call the function to fetch data, process the 'Aired' field, and update the documents
 fetchAndUpdateAiredData();
