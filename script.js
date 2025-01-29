@@ -34,8 +34,8 @@ async function fetchAndUpdateAiredData() {
     }
 
     // Step 4: Iterate through each anime and process the 'Aired' field
-    const processedData = animeData.map((anime, index) => {
-      console.log(`Processing anime ${index + 1}: ${anime._id}`);
+    for (const anime of animeData) {
+      console.log(`Processing anime: ${anime._id}`);
 
       const aired = anime.info?.results?.data?.animeInfo?.Aired;
       console.log(`Aired field: ${aired}`);
@@ -75,31 +75,25 @@ async function fetchAndUpdateAiredData() {
       // Step 8: If there are any new fields to update, perform the update
       if (Object.keys(updateFields).length > 0) {
         console.log(`Updating document with _id: ${anime._id}`);
-        return animeCollection.updateOne(
+        await animeCollection.updateOne(
           { _id: anime._id },  // Find the document by _id
           { $set: updateFields } // Update the startDate and endDate fields
         );
+        console.log(`Document with _id: ${anime._id} updated.`);
       }
+    }
 
-      return null;  // If no fields to update, return null
-    });
-
-    // Step 9: Wait for all update operations to complete
-    console.log("Waiting for update operations to complete...");
-    const updateResults = await Promise.all(processedData.filter(update => update !== null));
-
-    console.log(`Update Results: ${JSON.stringify(updateResults)}`);
-    return updateResults;
+    console.log("All documents processed successfully!");
 
   } catch (err) {
-    // Step 10: Handle errors
+    // Step 9: Handle errors
     console.error("Error fetching and updating data:", err);
   } finally {
-    // Step 11: Close the MongoDB connection
+    // Step 10: Close the MongoDB connection
     await client.close();
     console.log("MongoDB connection closed");
   }
 }
 
-// Step 12: Call the function to fetch data, process the 'Aired' field, and update the documents
+// Step 11: Call the function to fetch data, process the 'Aired' field, and update the documents
 fetchAndUpdateAiredData();
