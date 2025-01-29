@@ -6,8 +6,8 @@ const mongoUri =
 const dbName = "mydatabase";
 const animeCollectionName = "animeInfo";
 
-// Function to fetch data from the animeInfo collection, process the 'Aired' field, and update documents
-async function fetchAndUpdateAiredData() {
+// Function to fetch data from the animeInfo collection, process the 'MAL Score' field, and update documents
+async function fetchAndUpdateMALScoreData() {
   const client = new MongoClient(mongoUri);
 
   try {
@@ -39,49 +39,22 @@ async function fetchAndUpdateAiredData() {
 
       console.log(`Processing anime: ${anime._id}`);
 
-      const aired = anime.info?.results?.data?.animeInfo?.Aired;
-      console.log(`Aired field: ${aired}`);
+      const malScore = anime.info?.results?.data?.animeInfo?.["MAL Score"];
+      console.log(`MAL Score field: ${malScore}`);
 
-      let startDate = null;
-      let endDate = null;
+      let malScoreAsNumber = null;
 
-      // If 'Aired' exists and contains '-to-', split it
-      if (aired && aired.includes("-to-")) {
-        const [startDateStr, endDateStr] = aired
-          .split("-to-")
-          .map((date) => date.trim());
-        console.log(
-          `Split Aired field into: startDateStr=${startDateStr}, endDateStr=${endDateStr}`
-        );
-
-        // Check if the end date is '?' and handle accordingly
-        if (endDateStr !== "?" && endDateStr) {
-          console.log(`Processing endDate: ${endDateStr}`);
-          endDate = splitDate(endDateStr);
-        }
-
-        // Split startDate into date, month, year
-        console.log(`Processing startDate: ${startDateStr}`);
-        startDate = splitDate(startDateStr);
+      // If MAL Score exists and is not "?" (assuming "?" means missing or invalid)
+      if (malScore && malScore !== "?") {
+        // Convert MAL Score to number (float)
+        malScoreAsNumber = parseFloat(malScore);
+        console.log(`Converted MAL Score to number: ${malScoreAsNumber}`);
+      } else {
+        console.log("MAL Score is invalid or missing.");
       }
 
-      // If 'Aired' only contains a start date (no '-to-'), split it
-      if (aired && !aired.includes("-to-")) {
-        console.log(`Only start date found in Aired field: ${aired}`);
-        startDate = splitDate(aired.trim());
-      }
-
-      // If no 'Aired' data, set all date fields to null
-      if (!aired || aired === "?") {
-        console.log(
-          `No Aired field found or it contains '?'. Setting all date fields to null.`
-        );
-        startDate = { month: null, day: null, year: null };
-        endDate = null;
-      }
-
-      // Prepare the update object with startDate and endDate
-      const updateFields = { startDate, endDate };
+      // Prepare the update object with MAL Score outside of 'info'
+      const updateFields = { MAL_Score: malScoreAsNumber };
 
       console.log(
         `Update fields for anime ${anime._id}: ${JSON.stringify(updateFields)}`
@@ -90,7 +63,7 @@ async function fetchAndUpdateAiredData() {
       // Perform the update for the current document
       await animeCollection.updateOne(
         { _id: anime._id }, // Find the document by _id
-        { $set: updateFields } // Update the startDate and endDate fields
+        { $set: updateFields } // Update the MAL Score field at the root level
       );
       console.log(`Document with _id: ${anime._id} updated.`);
     }
@@ -106,32 +79,5 @@ async function fetchAndUpdateAiredData() {
   }
 }
 
-// Function to split a date string (e.g., "Jul-12,-2014") into month, day, and year
-function splitDate(dateStr) {
-  if (!dateStr || dateStr === "?") {
-    return { month: null, day: null, year: null }; // Return null values if the date is invalid
-  }
-
-  console.log(`Splitting date: ${dateStr}`);
-
-  // Clean the date string by removing any unwanted characters like commas
-
-  const newDate = dateStr.split(',')
-
-  const month = newDate[0].split('-')[0]
-  const day = newDate[0].split('-')[1]
-  const year = newDate[1].replace('-',"")
-
-
-  console.log(`Split date: month=${month}, day=${day}, year=${year}`);
-
-  // Handle the case where year might be undefined due to unexpected format
-  return {
-    month,
-    day,
-    year: year ? year.trim() : null, // Trim and handle undefined year
-  };
-}
-
-// Call the function to fetch data, process the 'Aired' field, and update the documents
-fetchAndUpdateAiredData();
+// Call the function to fetch data, process the 'MAL Score' field, and update the documents
+fetchAndUpdateMALScoreData();
