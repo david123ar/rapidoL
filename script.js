@@ -34,7 +34,7 @@ async function fetchWithRetry(url, retries = 5) {
         );
       }
       // Wait for 2 seconds before retrying
-      // await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
 }
@@ -244,7 +244,7 @@ async function updateStreamingLinks() {
                         episodeData = await fetchWithRetry(
                           `https://newgogo.animoon.me/api/data?episodeId=${encodeURIComponent(
                             episodeId
-                          )}&category=raw`
+                          )}&category=dub`
                         );
 
                         if (
@@ -477,42 +477,61 @@ async function updateStreamingLinks() {
                     }
 
                     // Add New Episode to episodesStream Collection with streaming links
-                    await episodesStreamCollection.updateOne(
-                      { _id: episodeId }, // Filter condition: Find the document by episodeId
-                      {
-                        $set: {
-                          title: episode.title,
-                          episodeId: episodeId,
-                          number: episode.episode_no,
-                          isFiller: episode.filler,
-                          streams: {
-                            raw: {
-                              success: true,
-                              results: {
-                                streamingLink: categoryData.raw || [],
-                                servers: [],
-                              },
-                            },
-                            sub: {
-                              success: true,
-                              results: {
-                                streamingLink: categoryData.sub || [],
-                                servers: [],
-                              },
-                            },
-                            dub: {
+                    if (categoryData.dub?.link?.file) {
+                      // Add or update dub category without removing sub category
+                      await episodesStreamCollection.updateOne(
+                        { _id: episodeId }, // Filter condition: Find the document by episodeId
+                        {
+                          $set: {
+                            "streams.dub": {
                               success: true,
                               results: {
                                 streamingLink: categoryData.dub || [],
                                 servers: [],
                               },
                             },
+                            updatedAt: new Date(),
                           },
-                          updatedAt: new Date(),
                         },
-                      },
-                      { upsert: true } // If the document doesn't exist, insert it
-                    );
+                        { upsert: true } // If the document doesn't exist, insert it
+                      );
+
+                      console.log(
+                        `Updated dub stream for episode with ID: ${episodeId}`
+                      );
+                    } else {
+                      console.log(
+                        "Not storing Data for dub as condition didn't meet"
+                      );
+                    }
+
+                    if (categoryData.sub?.link?.file) {
+                      // Add or update sub category without removing dub category
+                      await episodesStreamCollection.updateOne(
+                        { _id: episodeId }, // Filter condition: Find the document by episodeId
+                        {
+                          $set: {
+                            "streams.sub": {
+                              success: true,
+                              results: {
+                                streamingLink: categoryData.sub || [],
+                                servers: [],
+                              },
+                            },
+                            updatedAt: new Date(),
+                          },
+                        },
+                        { upsert: true } // If the document doesn't exist, insert it
+                      );
+
+                      console.log(
+                        `Updated sub stream for episode with ID: ${episodeId}`
+                      );
+                    } else {
+                      console.log(
+                        "Not storing Data for sub as condition didn't meet"
+                      );
+                    }
 
                     console.log(`Updated episode with ID: ${episodeId}`);
                   } else {
