@@ -7,8 +7,8 @@ const dbName = "mydatabase";
 
 // Categories to Fetch
 const categories = [
-  // "top-airing", "most-popular", "most-favorite", "completed", "recently-updated", "recently-added",
-  // "top-upcoming", "subbed-anime", "dubbed-anime", "movie", "special", "ova", "ona", "tv",
+  "top-airing", "most-popular", "most-favorite", "completed", "recently-updated", "recently-added",
+  "top-upcoming", "subbed-anime", "dubbed-anime", "movie", "special", "ova", "ona", "tv",
   "genre/action",
   "genre/adventure",
   "genre/cars",
@@ -50,7 +50,7 @@ const categories = [
   "genre/supernatural",
   "genre/thriller",
   "genre/vampire",
-  //  "az-list",
+   "az-list",
   "az-list/other",
   "az-list/0-9",
   "az-list/a",
