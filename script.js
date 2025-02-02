@@ -59,7 +59,7 @@ async function updateStreamingLinks() {
       throw new Error("Failed to fetch total pages from Recently Updated API");
     }
 
-    const totalPages = initialData.results.totalPages;
+    const totalPages = 1;
     console.log(`Total Pages: ${totalPages}`);
 
     // Step 2: Iterate through all pages and fetch anime info and episodes
@@ -395,145 +395,151 @@ async function updateStreamingLinks() {
                       );
                     }
 
-                    // Step 7: Fetch Streaming Links for All Categories with retry for sub and dub if link is missing
-                    let retryCountLinks = 0;
-                    while (retryCountLinks < 5) {
-                      try {
-                        let hasValidLink = false;
-                        let episodeData;
+                    if (rawT?.results.some((item) => item.type !== "raw")) {
+                      // Step 7: Fetch Streaming Links for All Categories with retry for sub and dub if link is missing
+                      let retryCountLinks = 0;
+                      while (retryCountLinks < 5) {
+                        try {
+                          let hasValidLink = false;
+                          let episodeData;
 
-                        // Retry and fetch for each category
-                        const categories = ["dub", "sub"];
+                          // Retry and fetch for each category
+                          const categories = ["dub", "sub"];
 
-                        for (const category of categories) {
-                          let currentCategoryData = null;
-                          let existingCategoryLink =
-                            existingEpisode?.streams?.[category]?.results
-                              ?.streamingLink?.link?.file;
+                          for (const category of categories) {
+                            let currentCategoryData = null;
+                            let existingCategoryLink =
+                              existingEpisode?.streams?.[category]?.results
+                                ?.streamingLink?.link?.file;
 
-                          // Check if category is available
-                          if (
-                            rawT?.results.some((item) => item.type === category)
-                          ) {
-                            // If the category link does not exist or is invalid, fetch the category data
-                            if (!existingCategoryLink) {
-                              episodeData = await fetchWithRetry(
-                                `https://newgogo.animoon.me/api/data?episodeId=${encodeURIComponent(
-                                  episodeId
-                                )}&category=${category}`
-                              );
-
-                              // Check if valid link exists in the fetched data
-                              if (
-                                episodeData.link &&
-                                episodeData.link.file &&
-                                episodeData.link.file.length > 0
-                              ) {
-                                categoryData[category] = episodeData;
-                                hasValidLink = true;
-                              }
-                            } else {
-                              // If link already exists, skip fetching
-                              categoryData[category] = [];
-                            }
-
-                            // Retry logic if no valid link found
+                            // Check if category is available
                             if (
-                              !hasValidLink &&
                               rawT?.results.some(
                                 (item) => item.type === category
                               )
                             ) {
-                              retryCountLinks++;
-                              console.error(
-                                `Error fetching valid link for ${category} episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
-                              );
-
-                              if (retryCountLinks === 5) {
-                                console.error(
-                                  `Failed to fetch valid link for ${category} episode ID: ${episodeId} after 5 retries`
+                              // If the category link does not exist or is invalid, fetch the category data
+                              if (!existingCategoryLink) {
+                                episodeData = await fetchWithRetry(
+                                  `https://newgogo.animoon.me/api/data?episodeId=${encodeURIComponent(
+                                    episodeId
+                                  )}&category=${category}`
                                 );
-                                break;
+
+                                // Check if valid link exists in the fetched data
+                                if (
+                                  episodeData.link &&
+                                  episodeData.link.file &&
+                                  episodeData.link.file.length > 0
+                                ) {
+                                  categoryData[category] = episodeData;
+                                  hasValidLink = true;
+                                }
+                              } else {
+                                // If link already exists, skip fetching
+                                categoryData[category] = [];
                               }
 
-                              // Wait for 2 seconds before retrying
-                              await new Promise((resolve) =>
-                                setTimeout(resolve, 2000)
-                              );
+                              // Retry logic if no valid link found
+                              if (
+                                !hasValidLink &&
+                                rawT?.results.some(
+                                  (item) => item.type === category
+                                )
+                              ) {
+                                retryCountLinks++;
+                                console.error(
+                                  `Error fetching valid link for ${category} episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
+                                );
+
+                                if (retryCountLinks === 5) {
+                                  console.error(
+                                    `Failed to fetch valid link for ${category} episode ID: ${episodeId} after 5 retries`
+                                  );
+                                  break;
+                                }
+
+                                // Wait for 2 seconds before retrying
+                                await new Promise((resolve) =>
+                                  setTimeout(resolve, 2000)
+                                );
+                              }
                             }
                           }
-                        }
 
-                        // If valid link was found in any category, exit the retry loop
-                        if (hasValidLink) {
-                          break;
+                          // If valid link was found in any category, exit the retry loop
+                          if (hasValidLink) {
+                            break;
+                          }
+                        } catch (error) {
+                          console.error(
+                            `Error fetching streaming links for inserting episode ID: ${episodeId}: ${error.message}`
+                          );
+                          retryCountLinks++;
                         }
-                      } catch (error) {
-                        console.error(
-                          `Error fetching streaming links for inserting episode ID: ${episodeId}: ${error.message}`
-                        );
-                        retryCountLinks++;
                       }
-                    }
 
-                    // Add New Episode to episodesStream Collection with streaming links
-                    if (categoryData.dub?.link?.file) {
-                      // Add or update dub category without removing sub category
-                      await episodesStreamCollection.updateOne(
-                        { _id: episodeId }, // Filter condition: Find the document by episodeId
-                        {
-                          $set: {
-                            "streams.dub": {
-                              success: true,
-                              results: {
-                                streamingLink: categoryData.dub || [],
-                                servers: [],
+                      // Add New Episode to episodesStream Collection with streaming links
+                      if (categoryData.dub?.link?.file) {
+                        // Add or update dub category without removing sub category
+                        await episodesStreamCollection.updateOne(
+                          { _id: episodeId }, // Filter condition: Find the document by episodeId
+                          {
+                            $set: {
+                              "streams.dub": {
+                                success: true,
+                                results: {
+                                  streamingLink: categoryData.dub || [],
+                                  servers: [],
+                                },
                               },
+                              updatedAt: new Date(),
                             },
-                            updatedAt: new Date(),
                           },
-                        },
-                        { upsert: true } // If the document doesn't exist, insert it
-                      );
+                          { upsert: true } // If the document doesn't exist, insert it
+                        );
 
-                      console.log(
-                        `Updated dub stream for episode with ID: ${episodeId}`
-                      );
-                    } else {
-                      console.log(
-                        "Not storing Data for dub as condition didn't meet"
-                      );
-                    }
+                        console.log(
+                          `Updated dub stream for episode with ID: ${episodeId}`
+                        );
+                      } else {
+                        console.log(
+                          "Not storing Data for dub as condition didn't meet"
+                        );
+                      }
 
-                    if (categoryData.sub?.link?.file) {
-                      // Add or update sub category without removing dub category
-                      await episodesStreamCollection.updateOne(
-                        { _id: episodeId }, // Filter condition: Find the document by episodeId
-                        {
-                          $set: {
-                            "streams.sub": {
-                              success: true,
-                              results: {
-                                streamingLink: categoryData.sub || [],
-                                servers: [],
+                      if (categoryData.sub?.link?.file) {
+                        // Add or update sub category without removing dub category
+                        await episodesStreamCollection.updateOne(
+                          { _id: episodeId }, // Filter condition: Find the document by episodeId
+                          {
+                            $set: {
+                              "streams.sub": {
+                                success: true,
+                                results: {
+                                  streamingLink: categoryData.sub || [],
+                                  servers: [],
+                                },
                               },
+                              updatedAt: new Date(),
                             },
-                            updatedAt: new Date(),
                           },
-                        },
-                        { upsert: true } // If the document doesn't exist, insert it
-                      );
+                          { upsert: true } // If the document doesn't exist, insert it
+                        );
 
-                      console.log(
-                        `Updated sub stream for episode with ID: ${episodeId}`
-                      );
+                        console.log(
+                          `Updated sub stream for episode with ID: ${episodeId}`
+                        );
+                      } else {
+                        console.log(
+                          "Not storing Data for sub as condition didn't meet"
+                        );
+                      }
+
+                      console.log(`Updated episode with ID: ${episodeId}`);
                     } else {
-                      console.log(
-                        "Not storing Data for sub as condition didn't meet"
-                      );
+                      console.log('episode is still raw , skipping...')
                     }
-
-                    console.log(`Updated episode with ID: ${episodeId}`);
                   } else {
                     console.log(
                       `Episode ID: ${episodeId} already exists in episodesStream collection`
