@@ -34,7 +34,7 @@ async function fetchWithRetry(url, retries = 5) {
         );
       }
       // Wait for 2 seconds before retrying
-      // await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
 }
@@ -125,7 +125,7 @@ async function updateStreamingLinks() {
           episodesData &&
           episodesData?.results?.episodes &&
           episodesData?.results?.episodes?.length > 0 && infoData && infoData?.results?.data?.title
-        ) { 
+        ) {
 
         const existingAnime = await animeInfoCollection.findOne({ _id: id });
 
@@ -216,23 +216,23 @@ async function updateStreamingLinks() {
                     }
 
                     // If no valid link found in sub/raw, retry
-                    if (
-                      !hasValidLink &&
-                      rawT?.results.some((item) => item.type === "raw")
-                    ) {
-                      retryCountLinks++;
-                      console.error(
-                        `Error fetching valid link for raw episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
-                      );
-                      if (retryCountLinks === 5) {
-                        console.error(
-                          `Failed to fetch valid link for raw episode ID: ${episodeId} after 5 retries`
-                        );
-                        break;
-                      }
-                      // Wait for 2 seconds before retrying
-                      await new Promise((resolve) => setTimeout(resolve, 2000));
-                    }
+                    // if (
+                    //   !hasValidLink &&
+                    //   rawT?.results.some((item) => item.type === "raw")
+                    // ) {
+                    //   retryCountLinks++;
+                    //   console.error(
+                    //     `Error fetching valid link for raw episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
+                    //   );
+                    //   if (retryCountLinks === 5) {
+                    //     console.error(
+                    //       `Failed to fetch valid link for raw episode ID: ${episodeId} after 5 retries`
+                    //     );
+                    //     break;
+                    //   }
+                    //   // Wait for 2 seconds before retrying
+                    //   await new Promise((resolve) => setTimeout(resolve, 2000));
+                    // }
                   }
                   if (rawT?.results.some((item) => item.type === "dub")) {
                     // Fetch sub or raw category if dub is invalid or not available
@@ -260,23 +260,23 @@ async function updateStreamingLinks() {
                     }
 
                     // If no valid link found in sub/raw, retry
-                    if (
-                      !hasValidLink &&
-                      rawT?.results.some((item) => item.type === "dub")
-                    ) {
-                      retryCountLinks++;
-                      console.error(
-                        `Error fetching valid link for dub episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
-                      );
-                      if (retryCountLinks === 5) {
-                        console.error(
-                          `Failed to fetch valid link for dub episode ID: ${episodeId} after 5 retries`
-                        );
-                        break;
-                      }
-                      // Wait for 2 seconds before retrying
-                      // await new Promise((resolve) => setTimeout(resolve, 2000));
-                    }
+                    // if (
+                    //   !hasValidLink &&
+                    //   rawT?.results.some((item) => item.type === "dub")
+                    // ) {
+                    //   retryCountLinks++;
+                    //   console.error(
+                    //     `Error fetching valid link for dub episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
+                    //   );
+                    //   if (retryCountLinks === 5) {
+                    //     console.error(
+                    //       `Failed to fetch valid link for dub episode ID: ${episodeId} after 5 retries`
+                    //     );
+                    //     break;
+                    //   }
+                    //   // Wait for 2 seconds before retrying
+                    //   // await new Promise((resolve) => setTimeout(resolve, 2000));
+                    // }
                   }
                   if (rawT?.results.some((item) => item.type === "sub")) {
                     // Fetch sub or raw category if dub is invalid or not available
@@ -304,23 +304,23 @@ async function updateStreamingLinks() {
                     }
 
                     // If no valid link found in sub/raw, retry
-                    if (
-                      !hasValidLink &&
-                      rawT?.results.some((item) => item.type === "sub")
-                    ) {
-                      retryCountLinks++;
-                      console.error(
-                        `Error fetching valid link for sub episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
-                      );
-                      if (retryCountLinks === 5) {
-                        console.error(
-                          `Failed to fetch valid link for sub episode ID: ${episodeId} after 5 retries`
-                        );
-                        break;
-                      }
-                      // Wait for 2 seconds before retrying
-                      // await new Promise((resolve) => setTimeout(resolve, 2000));
-                    }
+                    // if (
+                    //   !hasValidLink &&
+                    //   rawT?.results.some((item) => item.type === "sub")
+                    // ) {
+                    //   retryCountLinks++;
+                    //   console.error(
+                    //     `Error fetching valid link for sub episode ID: ${episodeId}. Attempt ${retryCountLinks}/5`
+                    //   );
+                    //   if (retryCountLinks === 5) {
+                    //     console.error(
+                    //       `Failed to fetch valid link for sub episode ID: ${episodeId} after 5 retries`
+                    //     );
+                    //     break;
+                    //   }
+                    //   // Wait for 2 seconds before retrying
+                    //   // await new Promise((resolve) => setTimeout(resolve, 2000));
+                    // }
                   }
                 } catch (error) {
                   console.error(
