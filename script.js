@@ -124,67 +124,67 @@ async function updateStreamingLinks() {
         if (
           episodesData &&
           episodesData?.results?.episodes &&
-          episodesData?.results?.episodes?.length > 0 && infoData && infoData?.results?.data?.title
+          episodesData?.results?.episodes?.length > 0 &&
+          infoData &&
+          infoData?.results?.data?.title
         ) {
+          const existingAnime = await animeInfoCollection.findOne({ _id: id });
 
-        const existingAnime = await animeInfoCollection.findOne({ _id: id });
-
-        if (existingAnime) {
-          // Update the existing anime document
-          await animeInfoCollection.updateOne(
-            { _id: id },
-            {
-              $set: {
-                info: infoData,
-                episodes: episodesData,
-              },
-            }
-          );
-          console.log("Anime document updated successfully");
-        } else {
-          // If the anime doesn't exist, insert a new document
-          await animeInfoCollection.insertOne({
-            _id: id,
-            info: infoData,
-            episodes: episodesData,
-          });
-          console.log("New anime document inserted successfully");
-        }
-
-        const episodesList = episodesData?.results?.episodes;
-
-        {
-          // Step 5: Process Each Episode
-          for (const episode of episodesList) {
-            const { id: episodeId, episode_no } = episode;
-
-            // Check if Episode Exists in episodesStream Collection
-            const existingEpisode = await episodesStreamCollection.findOne({
-              _id: episodeId,
-            });
-
-            if (!existingEpisode) {
-              console.log(`Fetching new episode with ID: ${episodeId}`);
-
-              const categoryData = {};
-
-              // Step 6: Check Dub before fetching streaming links
-              const isRaw = await fetch(
-                `https://vimal.animoon.me/api/servers/${episodeId}`
-              );
-              const rawT = await isRaw.json(); //// finish it
-              // If Dub exists and is greater than episode_no, skip raw
-
-              if (rawT?.results.some((item) => item.type !== "raw")) {
-                categoryData["raw"] = []; // Skip raw category if dub is greater than episode_no
-                console.log(
-                  `Skipping raw category for episode ID: ${episodeId} as dub is greater than episode_no`
-                );
+          if (existingAnime) {
+            // Update the existing anime document
+            await animeInfoCollection.updateOne(
+              { _id: id },
+              {
+                $set: {
+                  info: infoData,
+                  episodes: episodesData,
+                },
               }
+            );
+            console.log("Anime document updated successfully");
+          } else {
+            // If the anime doesn't exist, insert a new document
+            await animeInfoCollection.insertOne({
+              _id: id,
+              info: infoData,
+              episodes: episodesData,
+            });
+            console.log("New anime document inserted successfully");
+          }
 
-              // Step 7: Fetch Streaming Links for All Categories with retry for sub and dub if link is missing
-              let retryCountLinks = 0;
-              while (retryCountLinks < 5) {
+          const episodesList = episodesData?.results?.episodes;
+
+          {
+            // Step 5: Process Each Episode
+            for (const episode of episodesList) {
+              const { id: episodeId, episode_no } = episode;
+
+              // Check if Episode Exists in episodesStream Collection
+              const existingEpisode = await episodesStreamCollection.findOne({
+                _id: episodeId,
+              });
+
+              if (!existingEpisode) {
+                console.log(`Fetching new episode with ID: ${episodeId}`);
+
+                const categoryData = {};
+
+                // Step 6: Check Dub before fetching streaming links
+                const isRaw = await fetch(
+                  `https://vimal.animoon.me/api/servers/${episodeId}`
+                );
+                const rawT = await isRaw.json(); //// finish it
+                // If Dub exists and is greater than episode_no, skip raw
+
+                if (rawT?.results.some((item) => item.type !== "raw")) {
+                  categoryData["raw"] = []; // Skip raw category if dub is greater than episode_no
+                  console.log(
+                    `Skipping raw category for episode ID: ${episodeId} as dub is greater than episode_no`
+                  );
+                }
+
+                // Step 7: Fetch Streaming Links for All Categories with retry for sub and dub if link is missing
+
                 try {
                   let hasValidLink = false;
                   let episodeData;
@@ -321,51 +321,51 @@ async function updateStreamingLinks() {
                     `Error fetching streaming links for inserting episode ID: ${episodeId}: ${error.message}`
                   );
                 }
+
+                // Add New Episode to episodesStream Collection with streaming links
+                await episodesStreamCollection.insertOne({
+                  _id: episodeId,
+                  title: episode.title,
+                  episodeId: episodeId,
+                  number: episode.episode_no,
+                  isFiller: false,
+                  streams: {
+                    raw: {
+                      success: true,
+                      results: {
+                        streamingLink: categoryData.raw || [],
+                        servers: [],
+                      },
+                    },
+                    sub: {
+                      success: true,
+                      results: {
+                        streamingLink: categoryData.sub || [],
+                        servers: [],
+                      },
+                    },
+                    dub: {
+                      success: true,
+                      results: {
+                        streamingLink: categoryData.dub || [],
+                        servers: [],
+                      },
+                    },
+                  },
+                  updatedAt: new Date(),
+                });
+
+                console.log(`Inserted new episode with ID: ${episodeId}`);
+              } else {
+                console.log(
+                  `Episode ID: ${episodeId} already exists in episodesStream collection`
+                );
               }
-
-              // Add New Episode to episodesStream Collection with streaming links
-              await episodesStreamCollection.insertOne({
-                _id: episodeId,
-                title: episode.title,
-                episodeId: episodeId,
-                number: episode.episode_no,
-                isFiller: false,
-                streams: {
-                  raw: {
-                    success: true,
-                    results: {
-                      streamingLink: categoryData.raw || [],
-                      servers: [],
-                    },
-                  },
-                  sub: {
-                    success: true,
-                    results: {
-                      streamingLink: categoryData.sub || [],
-                      servers: [],
-                    },
-                  },
-                  dub: {
-                    success: true,
-                    results: {
-                      streamingLink: categoryData.dub || [],
-                      servers: [],
-                    },
-                  },
-                },
-                updatedAt: new Date(),
-              });
-
-              console.log(`Inserted new episode with ID: ${episodeId}`);
-            } else {
-              console.log(
-                `Episode ID: ${episodeId} already exists in episodesStream collection`
-              );
             }
           }
-        }} else {
-          console.log("Episodes are empty so , Skipping...")
-        } 
+        } else {
+          console.log("Episodes are empty so , Skipping...");
+        }
       }
     }
 
