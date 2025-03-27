@@ -1,9 +1,9 @@
 const axios = require('axios');
 const { MongoClient } = require('mongodb');
 
-// MongoDB configuration
+// MongoDB Configuration
 const mongoUri = 'mongodb://root:Imperial_king2004@145.223.118.168:27017/?authSource=admin';
-const dbName = 'mydatabase'; // Change the database name as needed
+const dbName = 'mydatabase';
 
 // Initialize MongoDB Client
 const client = new MongoClient(mongoUri);
@@ -15,24 +15,26 @@ async function fetchWithRetry(url, retries = 3, delay = 1000) {
             const response = await axios.get(url);
             return response;
         } catch (error) {
+            console.error(`Error fetching ${url} - Attempt (${i + 1}/${retries})`);
             if (i === retries - 1) throw error;
-            console.error(`Retrying (${i + 1}/${retries})...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
 }
 
+// Fetch anime list and store data
 async function fetchAnimeList() {
     await client.connect();
     const db = client.db(dbName);
     const animeCollection = db.collection('animeInfo');
     const episodesCollection = db.collection('episo');
 
-    let currentPage = 100; // Change starting page as needed
+    let currentPage = 1; // Change starting page as needed
     const totalPages = 208;
 
     while (currentPage <= totalPages) {
         console.log(`Processing page number: ${currentPage}`);
+
         try {
             const response = await fetchWithRetry(`https://vimal.animoon.me/api/az-list?page=${currentPage}`);
             const animeData = response.data.results.data;
@@ -43,8 +45,8 @@ async function fetchAnimeList() {
 
                 const existingAnime = await animeCollection.findOne({ _id: id });
 
-                // Fetch episodes even if anime exists
-                const episodes = await fetchEpisodes(id, episodesCollection, currentPage);
+                // Always fetch episodes even if anime exists
+                const episodes = await fetchEpisodes(id, episodesCollection);
 
                 if (!existingAnime) {
                     // Fetch and store anime info only if it doesn't exist
@@ -78,8 +80,8 @@ async function fetchAnimeInfo(id) {
     }
 }
 
-// Fetch episodes
-async function fetchEpisodes(id, episodesCollection, currentPage) {
+// Fetch episodes and skip existing ones
+async function fetchEpisodes(id, episodesCollection) {
     try {
         const response = await fetchWithRetry(`https://vimal.animoon.me/api/episodes/${id}`);
         const episodes = response.data.results.episodes;
@@ -88,12 +90,20 @@ async function fetchEpisodes(id, episodesCollection, currentPage) {
         for (let episode of episodes) {
             const { id: episodeId } = episode;
 
-            // Fetch streaming links regardless of whether episode exists
-            console.log(`Processing episode ID: ${episodeId}...`);
+            // Check if episode already exists
+            const existingEpisode = await episodesCollection.findOne({ _id: episodeId });
+            if (existingEpisode) {
+                console.log(`Skipping existing episode ID: ${episodeId}`);
+                updatedEpisodes.push(episodeId);
+                continue;
+            }
+
+            // Fetch streaming links only for new episodes
+            console.log(`Processing new episode ID: ${episodeId}...`);
             const streams = await fetchStreamLinks(episodeId);
             episode.streams = streams;
 
-            // Store or update episode data
+            // Store new episode data
             await storeEpisodeData(episodesCollection, episodeId, episode);
             updatedEpisodes.push(episodeId);
         }
